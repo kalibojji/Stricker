@@ -31,6 +31,11 @@ button:disabled{opacity:.45}
 #grid button.on{border-color:var(--acc)}
 #grid img{width:100%;height:100%;object-fit:cover;display:block}
 #grid em{position:absolute;left:6px;bottom:6px;background:#000a;color:#fff;font-style:normal;font-size:11px;padding:2px 6px;border-radius:6px}
+#veditor{display:none;margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+#vid{max-width:100%;max-height:60vh;display:block}
+input[type=range]{width:55%;accent-color:var(--acc)}
+.stack{display:grid;gap:8px}
+.stack button{width:100%}
 #editor{display:none;margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
 .stage{border-radius:12px;background:repeating-conic-gradient(#2a2b30 0 25%,#202125 0 50%) 0 0/20px 20px;display:flex;align-items:center;justify-content:center;min-height:220px;overflow:hidden}
 #out{max-width:100%;max-height:60vh;display:block}
@@ -69,6 +74,18 @@ button:disabled{opacity:.45}
 <div id="status"></div>
 <div id="grid"></div>
 
+<section id="veditor">
+<div class="stage"><video id="vid" playsinline muted loop autoplay></video></div>
+<div class="opts">
+<label class="opt"><div>Début<small id="vStartLbl">0,0 s</small></div><input id="vStart" type="range" min="0" max="0" step="0.1" value="0"></label>
+<label class="opt"><div>Durée<small id="vDurLbl">3,0 s</small></div><input id="vDur" type="range" min="1" max="5" step="0.5" value="3"></label>
+</div>
+<div class="stack">
+<button id="vsave" type="button">Enregistrer la vidéo sans son</button>
+<button id="vstill" class="ghost" type="button">Utiliser une image fixe à la place</button>
+</div>
+</section>
+
 <section id="editor">
 <div class="stage"><canvas id="out"></canvas></div>
 <div class="opts">
@@ -80,10 +97,15 @@ button:disabled{opacity:.45}
 </section>
 
 <div class="help">
-<b>Ensuite, en 2 touches :</b>
+<b>Image → autocollant :</b>
 <ol>
 <li>Ouvre Photos, appui long sur l'image.</li>
 <li>Touche <b>Ajouter un autocollant</b> : il apparaît dans le clavier emoji (WhatsApp, iMessage…).</li>
+</ol>
+<b>Vidéo → autocollant animé :</b>
+<ol>
+<li>Ouvre l'app gratuite <b>intoLive</b>, choisis la vidéo enregistrée, touche <b>Save Live Photo</b>.</li>
+<li>Dans Photos, appui long sur cette Live Photo → <b>Ajouter un autocollant</b> : il bouge dans le clavier.</li>
 </ol>
 Astuce : Partager → <b>Sur l'écran d'accueil</b> pour l'avoir comme une appli.
 </div>
@@ -124,7 +146,7 @@ async function fromX(m) {
   const all = [...(t.media?.all || []), ...(t.quote?.media?.all || [])];
   return all.map(x => x.type === 'photo'
     ? { full: x.url.replace(/\?.*$/, '') + '?name=orig', thumb: x.url, kind: '' }
-    : { full: x.thumbnail_url, thumb: x.thumbnail_url, kind: x.type === 'gif' ? 'GIF' : 'Vidéo' }
+    : { full: x.thumbnail_url, thumb: x.thumbnail_url, kind: x.type === 'gif' ? 'GIF' : 'Vidéo', video: x.url }
   ).filter(x => x.full);
 }
 
@@ -167,7 +189,7 @@ async function thumbSrc(u) {
 async function run(link) {
   if (busy) return;
   busy = true;
-  grid.innerHTML = ''; ed.style.display = 'none';
+  grid.innerHTML = ''; ed.style.display = 'none'; ved.style.display = 'none'; vid.pause();
   say('Recherche des images…', '', true);
   try {
     const items = await resolve(link);
@@ -188,7 +210,137 @@ async function run(link) {
   busy = false;
 }
 
+const ved = $('#veditor'), vid = $('#vid');
+let vItem = null, recording = false;
+
+function fmt(s) { return s.toFixed(1).replace('.', ',') + ' s'; }
+
+function segment() {
+  const start = +$('#vStart').value;
+  const dur = Math.min(+$('#vDur').value, Math.max(0.5, vid.duration - start));
+  return { start, dur };
+}
+
+function syncLabels() {
+  const { start, dur } = segment();
+  $('#vStartLbl').textContent = fmt(start);
+  $('#vDurLbl').textContent = fmt(dur);
+}
+
+async function pickVideo(it) {
+  say('Téléchargement de la vidéo…', '', true);
+  ed.style.display = 'none';
+  try {
+    const r = await fetch(it.video, { mode: 'cors' });
+    if (!r.ok) throw new Error();
+    const blob = await r.blob();
+    vItem = it;
+    vid.src = URL.createObjectURL(blob);
+    await new Promise((res, rej) => { vid.onloadedmetadata = res; vid.onerror = rej; });
+    const max = Math.max(0, vid.duration - 1);
+    $('#vStart').max = max.toFixed(1);
+    $('#vStart').value = 0;
+    $('#vDur').value = Math.min(3, Math.max(1, Math.floor(vid.duration * 2) / 2));
+    syncLabels();
+    ved.style.display = 'block';
+    vid.currentTime = 0;
+    vid.play().catch(() => {});
+    say('Choisis le passage (3 s idéal pour un autocollant).', 'ok');
+    ved.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    say("Vidéo inaccessible, je passe à l'image fixe.", 'err');
+    pick({ ...it, video: null });
+  }
+}
+
+vid.ontimeupdate = () => {
+  if (recording) return;
+  const { start, dur } = segment();
+  if (vid.currentTime < start - 0.05 || vid.currentTime > start + dur) vid.currentTime = start;
+};
+
+['#vStart', '#vDur'].forEach(s => $(s).oninput = () => { syncLabels(); if (!recording) vid.currentTime = segment().start; });
+
+function recMime() {
+  for (const m of ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return '';
+}
+
+async function recordSegment() {
+  const mime = recMime();
+  if (!mime) throw new Error('Enregistrement vidéo non pris en charge par ce navigateur.');
+  const { start, dur } = segment();
+  const k = Math.min(1, 720 / Math.max(vid.videoWidth, vid.videoHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(vid.videoWidth * k / 2) * 2;
+  c.height = Math.round(vid.videoHeight * k / 2) * 2;
+  const ctx = c.getContext('2d');
+  const stream = c.captureStream(30);
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4e6 });
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  const done = new Promise(res => rec.onstop = res);
+  recording = true;
+  vid.pause();
+  vid.loop = false;
+  vid.currentTime = start;
+  await new Promise(res => vid.addEventListener('seeked', res, { once: true }));
+  ctx.drawImage(vid, 0, 0, c.width, c.height);
+  rec.start();
+  await vid.play();
+  await new Promise(res => {
+    const tick = () => {
+      ctx.drawImage(vid, 0, 0, c.width, c.height);
+      const t = vid.currentTime - start;
+      say(`Enregistrement… ${fmt(Math.min(t, dur))} / ${fmt(dur)}`, '', true);
+      if (t >= dur || vid.ended) return res();
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+  rec.stop();
+  await done;
+  vid.pause();
+  vid.loop = true;
+  recording = false;
+  vid.currentTime = start;
+  vid.play().catch(() => {});
+  const type = mime.split(';')[0];
+  return new File([new Blob(chunks, { type })], 'sticker-' + Date.now() + (type === 'video/mp4' ? '.mp4' : '.webm'), { type });
+}
+
+async function shareFile(file, okMsg) {
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); say(okMsg, 'ok'); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = file.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  say('Fichier téléchargé.', 'ok');
+}
+
+$('#vsave').onclick = async () => {
+  if (recording) return;
+  $('#vsave').disabled = true;
+  try {
+    const file = await recordSegment();
+    await shareFile(file, "Choisis « Enregistrer la vidéo », puis ouvre intoLive → Save Live Photo.");
+  } catch (e) {
+    recording = false; vid.loop = true;
+    say(e.message || "Échec de l'enregistrement.", 'err');
+  }
+  $('#vsave').disabled = false;
+};
+
+$('#vstill').onclick = () => { vid.pause(); ved.style.display = 'none'; if (vItem) pick({ ...vItem, video: null }); };
+
 async function pick(it) {
+  if (it.video) return pickVideo(it);
+  ved.style.display = 'none'; vid.pause();
   say("Téléchargement de l'image…", '', true);
   try {
     await loadSource(await fetchBlob(it.full));
