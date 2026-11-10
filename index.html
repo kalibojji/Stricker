@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Stickers">
+<meta name="theme-color" content="#111214">
+<title>Sticker express</title>
+<style>
+:root{--bg:#111214;--card:#1c1d21;--line:#2c2e33;--txt:#f2f2f3;--mut:#9a9ca3;--acc:#ffd23f;--ok:#4ade80;--err:#f87171}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+main{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 40px)}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
+h1 span{color:var(--acc)}
+.sub{color:var(--mut);margin:0 0 18px;font-size:14px}
+.row{display:flex;gap:8px}
+input[type=url]{flex:1;min-width:0;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:12px;padding:13px 12px;font-size:16px}
+button,.btn{appearance:none;border:0;border-radius:12px;padding:13px 16px;font-size:16px;font-weight:600;background:var(--acc);color:#111;cursor:pointer;white-space:nowrap}
+button.ghost,.btn.ghost{background:var(--card);color:var(--txt);border:1px solid var(--line)}
+button:disabled{opacity:.45}
+.links{display:flex;gap:8px;margin-top:8px}
+.links>*{flex:1;text-align:center}
+#file{display:none}
+#status{min-height:22px;margin:14px 2px;font-size:14px;color:var(--mut)}
+#status.err{color:var(--err)}
+#status.ok{color:var(--ok)}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
+#grid button{padding:0;background:var(--card);border:2px solid transparent;overflow:hidden;aspect-ratio:1;position:relative}
+#grid button.on{border-color:var(--acc)}
+#grid img{width:100%;height:100%;object-fit:cover;display:block}
+#grid em{position:absolute;left:6px;bottom:6px;background:#000a;color:#fff;font-style:normal;font-size:11px;padding:2px 6px;border-radius:6px}
+#editor{display:none;margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+.stage{border-radius:12px;background:repeating-conic-gradient(#2a2b30 0 25%,#202125 0 50%) 0 0/20px 20px;display:flex;align-items:center;justify-content:center;min-height:220px;overflow:hidden}
+#out{max-width:100%;max-height:60vh;display:block}
+.opts{display:grid;gap:10px;margin:14px 0}
+.opt{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:15px}
+.opt small{display:block;color:var(--mut);font-size:12px}
+.sw{position:relative;width:50px;height:30px;flex:none}
+.sw input{opacity:0;width:0;height:0}
+.sw span{position:absolute;inset:0;background:#3a3c42;border-radius:30px;transition:.2s}
+.sw span:before{content:"";position:absolute;width:26px;height:26px;left:2px;top:2px;background:#fff;border-radius:50%;transition:.2s}
+.sw input:checked+span{background:var(--ok)}
+.sw input:checked+span:before{transform:translateX(20px)}
+#save{width:100%;font-size:17px;padding:15px}
+.help{margin-top:18px;color:var(--mut);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+.help b{color:var(--txt)}
+.help ol{padding-left:18px;margin:6px 0}
+.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--mut);border-top-color:transparent;border-radius:50%;animation:s .8s linear infinite;vertical-align:-1px;margin-right:6px}
+@keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<main>
+<h1>Sticker <span>express</span></h1>
+<p class="sub">Colle un lien X, Bluesky ou une image : récupère, détoure, enregistre.</p>
+
+<form id="f" class="row">
+<input id="u" type="url" inputmode="url" autocomplete="off" autocapitalize="off" placeholder="https://x.com/…/status/…">
+<button id="go" type="submit">OK</button>
+</form>
+<div class="links">
+<button id="paste" class="ghost" type="button">📋 Coller &amp; lancer</button>
+<label class="btn ghost" for="file">🖼️ Photo</label>
+<input id="file" type="file" accept="image/*">
+</div>
+
+<div id="status"></div>
+<div id="grid"></div>
+
+<section id="editor">
+<div class="stage"><canvas id="out"></canvas></div>
+<div class="opts">
+<label class="opt"><div>Détourer<small>IA dans le navigateur, ~40 Mo téléchargés une seule fois</small></div><span class="sw"><input id="oCut" type="checkbox" checked><span></span></span></label>
+<label class="opt"><div>Contour blanc<small>Effet autocollant</small></div><span class="sw"><input id="oStroke" type="checkbox" checked><span></span></span></label>
+<label class="opt"><div>Carré 512 × 512<small>Format sticker WhatsApp</small></div><span class="sw"><input id="oSquare" type="checkbox"><span></span></span></label>
+</div>
+<button id="save" type="button">Enregistrer dans Photos</button>
+</section>
+
+<div class="help">
+<b>Ensuite, en 2 touches :</b>
+<ol>
+<li>Ouvre Photos, appui long sur l'image.</li>
+<li>Touche <b>Ajouter un autocollant</b> : il apparaît dans le clavier emoji (WhatsApp, iMessage…).</li>
+</ol>
+Astuce : Partager → <b>Sur l'écran d'accueil</b> pour l'avoir comme une appli.
+</div>
+</main>
+
+<script type="module">
+const $ = s => document.querySelector(s);
+const st = $('#status'), grid = $('#grid'), ed = $('#editor'), out = $('#out');
+let source = null, cutCache = null, rbgPromise = null, busy = false;
+
+function say(msg, cls = '', spin = false) {
+  st.className = cls;
+  st.innerHTML = (spin ? '<span class="spin"></span>' : '') + msg;
+}
+
+function proxied(url, extra = '') {
+  return 'https://wsrv.nl/?url=' + encodeURIComponent(url.replace(/^https?:\/\//, '')) + extra;
+}
+
+async function fetchBlob(url) {
+  for (const u of [url, proxied(url, '&output=png')]) {
+    try {
+      const r = await fetch(u, { mode: 'cors' });
+      if (r.ok) {
+        const b = await r.blob();
+        if (b.type.startsWith('image/')) return b;
+      }
+    } catch (e) {}
+  }
+  throw new Error("Impossible de télécharger l'image.");
+}
+
+async function fromX(m) {
+  const r = await fetch(`https://api.fxtwitter.com/${m[1]}/status/${m[2]}`);
+  if (!r.ok) throw new Error('Post introuvable ou privé.');
+  const j = await r.json();
+  const t = j.tweet || {};
+  const all = [...(t.media?.all || []), ...(t.quote?.media?.all || [])];
+  return all.map(x => x.type === 'photo'
+    ? { full: x.url.replace(/\?.*$/, '') + '?name=orig', thumb: x.url, kind: '' }
+    : { full: x.thumbnail_url, thumb: x.thumbnail_url, kind: x.type === 'gif' ? 'GIF' : 'Vidéo' }
+  ).filter(x => x.full);
+}
+
+async function fromBsky(m) {
+  const uri = `at://${m[1]}/app.bsky.feed.post/${m[2]}`;
+  const r = await fetch('https://public.api.bsky.app/xrpc/app.bsky.feed.getPosts?uris=' + encodeURIComponent(uri));
+  if (!r.ok) throw new Error('Post Bluesky introuvable.');
+  const p = (await r.json()).posts?.[0];
+  const e = p?.embed || {};
+  const imgs = e.images || e.media?.images || [];
+  const res = imgs.map(i => ({ full: i.fullsize, thumb: i.thumb, kind: '' }));
+  const v = e.thumbnail || e.media?.thumbnail;
+  if (v) res.push({ full: v, thumb: v, kind: 'Vidéo' });
+  return res;
+}
+
+async function resolve(link) {
+  link = link.trim();
+  let m = link.match(/(?:x|twitter|fxtwitter|vxtwitter|fixupx|fixvx)\.com\/([^/?#]+)\/status(?:es)?\/(\d+)/i);
+  if (m) return fromX(m);
+  m = link.match(/bsky\.app\/profile\/([^/?#]+)\/post\/([^/?#]+)/i);
+  if (m) return fromBsky(m);
+  if (/^https?:\/\//i.test(link)) return [{ full: link, thumb: link, kind: '' }];
+  throw new Error('Lien non reconnu.');
+}
+
+async function blobToImg(blob) {
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  return img;
+}
+
+async function thumbSrc(u) {
+  try { return URL.createObjectURL(await fetchBlob(proxied(u, '&w=300&output=jpg'))); }
+  catch (e) { return ''; }
+}
+
+async function run(link) {
+  if (busy) return;
+  busy = true;
+  grid.innerHTML = ''; ed.style.display = 'none';
+  say('Recherche des images…', '', true);
+  try {
+    const items = await resolve(link);
+    if (!items.length) throw new Error("Aucune image dans ce post.");
+    if (items.length === 1) { busy = false; return pick(items[0]); }
+    say('Choisis une image :');
+    for (const it of items) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.innerHTML = `<img alt="">${it.kind ? `<em>${it.kind}</em>` : ''}`;
+      thumbSrc(it.thumb).then(s => { if (s) b.querySelector('img').src = s; });
+      b.onclick = () => { grid.querySelectorAll('button').forEach(x => x.classList.remove('on')); b.classList.add('on'); pick(it); };
+      grid.appendChild(b);
+    }
+  } catch (e) {
+    say(e.message, 'err');
+  }
+  busy = false;
+}
+
+async function pick(it) {
+  say("Téléchargement de l'image…", '', true);
+  try {
+    await loadSource(await fetchBlob(it.full));
+  } catch (e) { say(e.message, 'err'); }
+}
+
+async function loadSource(blob) {
+  source = await blobToImg(blob);
+  cutCache = null;
+  ed.style.display = 'block';
+  await render();
+  ed.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function loadRbg() {
+  if (!rbgPromise) rbgPromise = import('https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm');
+  return rbgPromise;
+}
+
+async function cutout() {
+  if (cutCache) return cutCache;
+  say("Détourage en cours (la 1re fois, chargement du modèle)…", '', true);
+  const { removeBackground } = await loadRbg();
+  const c = document.createElement('canvas');
+  c.width = source.naturalWidth; c.height = source.naturalHeight;
+  c.getContext('2d').drawImage(source, 0, 0);
+  const inBlob = await new Promise(r => c.toBlob(r, 'image/png'));
+  const res = await removeBackground(inBlob, { output: { format: 'image/png' } });
+  cutCache = await blobToImg(res);
+  return cutCache;
+}
+
+function trim(cnv) {
+  const ctx = cnv.getContext('2d');
+  const { width: w, height: h } = cnv;
+  const d = ctx.getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (d[(y * w + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  if (x1 < 0) return cnv;
+  const o = document.createElement('canvas');
+  o.width = x1 - x0 + 1; o.height = y1 - y0 + 1;
+  o.getContext('2d').drawImage(cnv, -x0, -y0);
+  return o;
+}
+
+function withStroke(img, cut) {
+  const maxSide = 1024;
+  const s = Math.min(1, maxSide / Math.max(img.width || img.naturalWidth, img.height || img.naturalHeight));
+  const w = Math.round((img.width || img.naturalWidth) * s), h = Math.round((img.height || img.naturalHeight) * s);
+  const r = Math.max(4, Math.round(Math.max(w, h) * 0.022));
+  const pad = r + 2;
+  const base = document.createElement('canvas');
+  base.width = w + pad * 2; base.height = h + pad * 2;
+  const bx = base.getContext('2d');
+  if (!cut) {
+    bx.fillStyle = '#fff';
+    const rr = r * 1.6;
+    bx.beginPath(); bx.roundRect(0, 0, base.width, base.height, rr + r); bx.fill();
+    bx.save(); bx.beginPath(); bx.roundRect(pad, pad, w, h, rr); bx.clip();
+    bx.drawImage(img, pad, pad, w, h); bx.restore();
+    return base;
+  }
+  const sil = document.createElement('canvas');
+  sil.width = w; sil.height = h;
+  const sx = sil.getContext('2d');
+  sx.drawImage(img, 0, 0, w, h);
+  sx.globalCompositeOperation = 'source-in';
+  sx.fillStyle = '#fff'; sx.fillRect(0, 0, w, h);
+  const steps = 32;
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    bx.drawImage(sil, pad + Math.cos(a) * r, pad + Math.sin(a) * r);
+  }
+  bx.drawImage(sil, pad, pad);
+  bx.drawImage(img, pad, pad, w, h);
+  return base;
+}
+
+async function render() {
+  const wantCut = $('#oCut').checked, stroke = $('#oStroke').checked, square = $('#oSquare').checked;
+  let img = source, cut = false;
+  if (wantCut) {
+    try { img = await cutout(); cut = true; }
+    catch (e) {
+      $('#oCut').checked = false;
+      say("Détourage indisponible ici. Pas grave : « Ajouter un autocollant » dans Photos détoure tout seul.", 'err');
+    }
+  }
+  let cnv = document.createElement('canvas');
+  cnv.width = img.naturalWidth || img.width; cnv.height = img.naturalHeight || img.height;
+  cnv.getContext('2d').drawImage(img, 0, 0);
+  if (cut) cnv = trim(cnv);
+  if (stroke) cnv = withStroke(cnv, cut);
+  if (square) {
+    const sq = document.createElement('canvas');
+    sq.width = sq.height = 512;
+    const k = Math.min(496 / cnv.width, 496 / cnv.height);
+    const w = cnv.width * k, h = cnv.height * k;
+    sq.getContext('2d').drawImage(cnv, (512 - w) / 2, (512 - h) / 2, w, h);
+    cnv = sq;
+  } else {
+    const k = Math.min(1, 1024 / Math.max(cnv.width, cnv.height));
+    if (k < 1) {
+      const sm = document.createElement('canvas');
+      sm.width = Math.round(cnv.width * k); sm.height = Math.round(cnv.height * k);
+      sm.getContext('2d').drawImage(cnv, 0, 0, sm.width, sm.height);
+      cnv = sm;
+    }
+  }
+  out.width = cnv.width; out.height = cnv.height;
+  out.getContext('2d').drawImage(cnv, 0, 0);
+  if (!st.classList.contains('err')) say('Prêt ✨', 'ok');
+}
+
+async function save() {
+  const blob = await new Promise(r => out.toBlob(r, 'image/png'));
+  const file = new File([blob], 'sticker-' + Date.now() + '.png', { type: 'image/png' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); say('Choisis « Enregistrer l\'image », puis Photos → appui long → Ajouter un autocollant.', 'ok'); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = file.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  say('Image téléchargée.', 'ok');
+}
+
+$('#f').onsubmit = e => { e.preventDefault(); if ($('#u').value) run($('#u').value); };
+$('#paste').onclick = async () => {
+  try {
+    const t = await navigator.clipboard.readText();
+    if (t) { $('#u').value = t; run(t); } else say('Presse-papiers vide.', 'err');
+  } catch (e) { $('#u').focus(); say('Colle le lien dans le champ puis touche OK.'); }
+};
+$('#file').onchange = e => { const f = e.target.files[0]; if (f) { grid.innerHTML = ''; say('Chargement…', '', true); loadSource(f).catch(x => say(x.message, 'err')); } };
+['#oCut', '#oStroke', '#oSquare'].forEach(s => $(s).onchange = () => { if (source) { st.className = ''; render(); } });
+$('#save').onclick = save;
+
+const q = new URLSearchParams(location.search).get('u') || new URLSearchParams(location.search).get('url');
+if (q) { $('#u').value = q; run(q); }
+</script>
+</body>
+</html>
